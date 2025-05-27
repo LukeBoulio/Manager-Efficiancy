@@ -1,0 +1,97 @@
+import pandas as pd
+from matplotlib import pyplot as plt
+import seaborn as sns
+from io import BytesIO
+import xlsxwriter
+from pptx import Presentation
+from pptx.util import Inches, Pt
+from pptx.dml.color import RGBColor
+
+# Branch data
+branches = [
+    "Charleston", "Charlotte", "Conway", "Raleigh", "High Point",
+    "Kinston", "Lexington", "Martinsville", "Richmond", "Roanoke",
+    "Verona", "Wilmington", "Wilson"
+]
+managers = [3, 4, 3, 6, 5, 6, 6, 8, 8, 8, 14, 11, 6]
+revenues = [
+    3051605, 4198756, 1763623, 4198756, 1627360,
+    4287595, 3561533, 3595485, 3040000, 4098756,
+    4168330, 3000000, 2675299
+]
+
+# Create DataFrame
+df = pd.DataFrame({
+    "Branch": branches,
+    "Managers": managers,
+    "Revenue ($)": revenues
+})
+df["Managers per $1M"] = df["Managers"] / (df["Revenue ($)"] / 1_000_000)
+df["Managers per $1M"] = df["Managers per $1M"].round(2)
+average_val = round(df["Managers per $1M"].mean(), 2)
+
+# Save Excel with formatting
+excel_output = BytesIO()
+writer = pd.ExcelWriter(excel_output, engine='xlsxwriter')
+df.to_excel(writer, sheet_name='Efficiency', index=False, startrow=1)
+
+workbook  = writer.book
+worksheet = writer.sheets['Efficiency']
+
+# Headers
+header_format = workbook.add_format({'bold': True, 'bg_color': '#a5cf4f'})
+for col_num, value in enumerate(df.columns.values):
+    worksheet.write(0, col_num, value, header_format)
+
+# Red highlight if Managers per $1M > 2.6
+highlight_format = workbook.add_format({'font_color': 'red'})
+worksheet.conditional_format(2, 3, len(df)+1, 3, {
+    'type': 'cell',
+    'criteria': '>',
+    'value': 2.6,
+    'format': highlight_format
+})
+
+writer.close()
+excel_output.seek(0)
+
+# Create PowerPoint
+ppt = Presentation()
+slide_layout = ppt.slide_layouts[5]
+slide = ppt.slides.add_slide(slide_layout)
+
+# Title
+title_box = slide.shapes.title
+title_box.text = "Manager Allocation Efficiency"
+
+# Add a textbox with the target
+txBox = slide.shapes.add_textbox(Inches(0.5), Inches(0.3), Inches(5), Inches(0.5))
+tf = txBox.text_frame
+p = tf.add_paragraph()
+p.text = "Target: 2.6 managers per $1M"
+p.font.size = Pt(18)
+p.font.bold = True
+p.font.color.rgb = RGBColor(165, 207, 79)  # Lime Green
+
+# Add Chart
+plt.figure(figsize=(8, 5))
+sns.scatterplot(x="Revenue ($)", y="Managers", data=df)
+sns.regplot(x="Revenue ($)", y="Managers", data=df, scatter=False, ci=None, color="blue")
+plt.title("Managers vs Revenue by Branch")
+plt.tight_layout()
+img_stream = BytesIO()
+plt.savefig(img_stream, format='png')
+plt.close()
+img_stream.seek(0)
+slide.shapes.add_picture(img_stream, Inches(0.5), Inches(1.2), width=Inches(8.5))
+
+# Save PPT
+ppt_output = BytesIO()
+ppt.save(ppt_output)
+ppt_output.seek(0)
+
+with open("manager_efficiency.xlsx", "wb") as f:
+    f.write(excel_output.read())
+
+with open("manager_efficiency_ppt.pptx", "wb") as f:
+    f.write(ppt_output.read())
